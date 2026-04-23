@@ -4,6 +4,7 @@ import json
 import asyncio
 import sys
 import signal # Añade esto en tus imports de arriba del todo
+import uuid
 
 os.system("playwright install chromium") # <-- Añade esto para la nube
 
@@ -19,18 +20,6 @@ from obtener_valoracion import obtener_valoracion_gipuzkoa
 # --- 2. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Valorador Pro", page_icon="🚗")
 
-
-# --- BARRA LATERAL: CONTROLES DEL SISTEMA ---
-with st.sidebar:
-    st.header("⚙️ Controles del Sistema")
-    st.write("Cuando termines de usar la aplicación, pulsa este botón antes de cerrar la pestaña para liberar la memoria del ordenador.")
-    
-    if st.button("🛑 Apagar Servidor y Salir", type="primary", use_container_width=True):
-        st.success("Apagando el sistema... Ya puedes cerrar esta pestaña.")
-        # Esta instrucción "mata" el proceso de la terminal instantáneamente
-        os.kill(os.getpid(), signal.SIGTERM)
-# --------------------------------------------
-
 # Inicializamos la memoria de la sesión si no existe
 if 'paso' not in st.session_state:
     st.session_state.paso = 'inicio'
@@ -39,6 +28,7 @@ if 'paso' not in st.session_state:
     st.session_state.precio_final = None
 
 st.title("🚗 Asistente de Valoración Automática")
+
 # --- 3. FLUJO DE LA APLICACIÓN ---
 
 # PASO INICIAL: SUBIDA DE ARCHIVO
@@ -48,7 +38,10 @@ if st.session_state.paso == 'inicio':
 
     if archivo_pdf:
         if st.button("🚀 Iniciar Análisis", type="primary"):
-            ruta_temp = "temp_permiso.pdf"
+            # --- SOLUCIÓN: CREAMOS UN NOMBRE ÚNICO PARA CADA USUARIO ---
+            codigo_unico = uuid.uuid4().hex
+            ruta_temp = f"temp_permiso_{codigo_unico}.pdf"
+            # -----------------------------------------------------------
             with open(ruta_temp, "wb") as f:
                 f.write(archivo_pdf.getbuffer())
 
