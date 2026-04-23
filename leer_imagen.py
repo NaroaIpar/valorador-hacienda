@@ -4,6 +4,7 @@ from google import genai
 
 import streamlit as st
 
+
 # La nube leerá la clave de la caja fuerte secreta de Streamlit
 API_KEY = st.secrets["GEMINI_API_KEY"]
 client = genai.Client(api_key=API_KEY)
@@ -56,9 +57,11 @@ def extraer_datos_pdf(ruta_pdf):
         return coche_diccionario
 
     except Exception as e:
+        # --- AQUÍ ESTÁ EL CAMBIO MÁGICO ---
+        st.error(f"🕵️‍♂️ DETALLE TÉCNICO DEL FALLO: {e}") 
+        # ----------------------------------
         print(f"❌ Error al procesar el PDF: {e}")
         return None
-
 # # --- Zona de pruebas ---
 # if __name__ == "__main__":
 #     # Asegúrate de poner el nombre exacto de tu PDF aquí
