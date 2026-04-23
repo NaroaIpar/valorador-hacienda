@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 
 def obtener_valoracion_gipuzkoa(coche, modelo_a_seleccionar=None, log_func=print):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False) # Headless=True es mejor para la nube
+        browser = p.chromium.launch(headless=True) # Headless=True es mejor para la nube
         page = browser.new_page()
         
         try:
