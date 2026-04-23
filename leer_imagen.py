@@ -35,9 +35,8 @@ def extraer_datos_pdf(ruta_pdf):
 
         print("🧠 Analizando el documento y extrayendo campos...")
         
-        # Hacemos la petición usando el modelo Flash (ideal para documentos rápidos)
         respuesta = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-1.5-flash',
             contents=[documento_subido, prompt]
         )
         
