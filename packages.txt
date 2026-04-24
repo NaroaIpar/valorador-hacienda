@@ -4,3 +4,8 @@ libxcomposite1
 libxrandr2
 libgbm1
 libasound2
+libxdamage1
+libxcb-dri3-0
+libxshmfence1
+libx11-xcb1
+libcups2
