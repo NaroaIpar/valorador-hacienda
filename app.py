@@ -6,8 +6,30 @@ import sys
 import signal
 import uuid
 import re
+import socket
+import subprocess
+import atexit
 
 os.system("playwright install chromium")
+
+
+def _arrancar_servidor_api():
+    """Lanza servidor.py en background si el puerto 8000 está libre."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('localhost', 8000)) == 0:
+                return  # Ya está corriendo
+        proc = subprocess.Popen(
+            [sys.executable, 'servidor.py'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        atexit.register(proc.terminate)
+    except Exception:
+        pass
+
+
+_arrancar_servidor_api()
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())

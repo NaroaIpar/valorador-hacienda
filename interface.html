@@ -23,10 +23,9 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState } = React;
+    const { useState, useEffect } = React;
 
-    // Lucide icons via UMD global
-    const LR = window.LucideReact || {};
+    const LR          = window.LucideReact || {};
     const Upload      = LR.Upload      || (() => null);
     const Download    = LR.Download    || (() => null);
     const CheckCircle = LR.CheckCircle || (() => null);
@@ -39,6 +38,8 @@
     const ShieldCheck = LR.ShieldCheck || (() => null);
     const FileType    = LR.FileType    || (() => null);
     const ImageIcon   = LR.Image       || (() => null);
+    const Scale       = LR.Scale       || (() => null);
+    const Sparkles    = LR.Sparkles    || (() => null);
 
     const DOC_TYPES = [
       { id: 'permiso',       label: 'Permiso de Circulación' },
@@ -54,6 +55,14 @@
       { id: '001mp',   name: '1-FIRMAR COMPRADOR MANDATO modelo 001MP (NUEVO).pdf' },
     ];
 
+    const HACIENDA_VACIO = {
+      id: '', fecha_mat: '', tipo_vehiculo: 'Turismos y Todo Terrenos',
+      marca: '', version_completa: '', modelo_buscar: '',
+      cc: 0, kw: 0, combustible: 'D',
+    };
+
+    // ── Componentes auxiliares ──────────────────────────────────────────
+
     function DataField({ label, value }) {
       return (
         <div className="flex flex-col bg-white p-3 rounded-xl border border-slate-200">
@@ -63,13 +72,62 @@
       );
     }
 
+    function HaciendaInput({ label, value, onChange, type = 'text', highlight = false }) {
+      return (
+        <div>
+          <label className="text-[9px] font-black text-slate-400 uppercase tracking-tighter block mb-1">{label}</label>
+          <input
+            type={type}
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className={`w-full border-2 px-3 py-2 rounded-xl text-sm font-bold outline-none transition-all
+              ${highlight && (!value || value === '0' || value === 0)
+                ? 'border-amber-400 bg-amber-50 focus:border-amber-500'
+                : 'border-slate-200 bg-white focus:border-blue-500'
+              }`}
+          />
+        </div>
+      );
+    }
+
+    // ── Componente principal ────────────────────────────────────────────
+
     function App() {
+      // — Gestión documental —
       const [apiKey, setApiKey]           = useState('');
       const [files, setFiles]             = useState({});
       const [loading, setLoading]         = useState(false);
       const [extractedData, setExtracted] = useState(null);
       const [provision, setProvision]     = useState('150');
       const [status, setStatus]           = useState({ type: '', msg: '' });
+
+      // — Valoración Hacienda —
+      const [haciendaData, setHaciendaData]         = useState(HACIENDA_VACIO);
+      const [haciendaLoading, setHaciendaLoading]   = useState(''); // 'allianz'|'opciones'|'valoracion'
+      const [opciones, setOpciones]                 = useState([]);
+      const [modeloSel, setModeloSel]               = useState('');
+      const [precioFinal, setPrecioFinal]           = useState(null);
+      const [haciendaErr, setHaciendaErr]           = useState('');
+
+      // Cuando el OCR extrae datos, rellena automáticamente el formulario de Hacienda
+      useEffect(() => {
+        if (!extractedData) return;
+        setHaciendaData({
+          id:               extractedData.matricula        || '',
+          fecha_mat:        extractedData.fecha_matriculacion || '',
+          tipo_vehiculo:    'Turismos y Todo Terrenos',
+          marca:            extractedData.marca             || '',
+          version_completa: extractedData.version_completa  || '',
+          modelo_buscar:    extractedData.modelo_buscar     || '',
+          cc:               extractedData.cc                || 0,
+          kw:               extractedData.kw                || 0,
+          combustible:      extractedData.combustible       || 'D',
+        });
+        setOpciones([]);
+        setModeloSel('');
+        setPrecioFinal(null);
+        setHaciendaErr('');
+      }, [extractedData]);
 
       const handleFileChange = (id, e) => {
         const file = e.target.files[0];
@@ -81,7 +139,7 @@
         setTimeout(() => setStatus({ type: '', msg: '' }), 8000);
       };
 
-      // ── OCR con Gemini (fetch directo desde el navegador) ──
+      // ── OCR con Gemini — ahora extrae TODOS los campos técnicos ──
       const processOCR = async () => {
         if (!apiKey) { showStatus('error', 'Introduce tu API Key de Gemini primero.'); return; }
         if (!files['dni_comprador'] || !files['permiso']) {
@@ -101,11 +159,25 @@
             toBase64(files['permiso']),
           ]);
 
-          const prompt = `Analiza DNI y Permiso de Circulación. Extrae:
-- Del DNI: Nombre y Apellidos (separados) y NIF.
-- Del Permiso: Matrícula (A), Fecha Matr. (B), Marca (D.1), Modelo (D.3).
-IMPORTANTE: Devuelve solo el JSON puro, sin markdown.
-JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca_modelo": "", "fecha_matriculacion": "" }`;
+          const prompt = `Analiza el DNI y el Permiso de Circulación español. Extrae:
+
+Del DNI:
+- nombre: solo el nombre de pila
+- apellidos: apellidos completos
+- dni_numero: número NIF
+
+Del Permiso de Circulación:
+- matricula: Campo A, sin espacios
+- fecha_matriculacion: fecha en formato DD/MM/YYYY
+- marca: Campo D.1 en MAYÚSCULAS
+- version_completa: Campo D.3 completo
+- modelo_buscar: SOLO la primera palabra del Campo D.3 (ej: si D.3 es "Q5 3.0 TDI" → "Q5")
+- cc: cilindrada en cm³ como número entero (Campo P.1)
+- kw: potencia máxima en kW como número entero (Campo P.2)
+- combustible: "D" para diésel/gasoil, "G" para gasolina (Campo P.3 o etiqueta energía)
+
+IMPORTANTE: Devuelve SOLO el JSON puro, sin markdown.
+JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "fecha_matriculacion": "", "marca": "", "version_completa": "", "modelo_buscar": "", "cc": 0, "kw": 0, "combustible": "D" }`;
 
           const resp = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -128,7 +200,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
           if (!res.candidates) throw new Error(JSON.stringify(res));
           const rawText = res.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
           setExtracted(JSON.parse(rawText));
-          showStatus('success', 'Datos extraídos correctamente. Ipar Artekaritza lista.');
+          showStatus('success', 'Datos extraídos. Formulario de Hacienda rellenado automáticamente.');
         } catch (e) {
           console.error(e);
           showStatus('error', 'Error en el escaneo IA. Comprueba la API Key o usa imágenes más claras.');
@@ -144,6 +216,8 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
         const uint8Array = new Uint8Array(await permisoImg.arrayBuffer());
         const imgType    = permisoImg.type.includes('png') ? 'png' : 'jpg';
         const fecha      = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+        const nombreCompleto = `${extractedData.nombre} ${extractedData.apellidos}`.toUpperCase();
+        const marcaModelo    = `${extractedData.marca} ${extractedData.version_completa}`.toUpperCase();
 
         const doc = new docx.Document({
           sections: [{
@@ -173,7 +247,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
               new docx.Paragraph({
                 children: [
                   new docx.TextRun({ text: 'IPAR ARTEKARITZA S.L., en su condición de Correduría de Seguros, recibe de D/Dña. ', size: 24 }),
-                  new docx.TextRun({ text: `${extractedData.nombre} ${extractedData.apellidos}`.toUpperCase(), bold: true, size: 24 }),
+                  new docx.TextRun({ text: nombreCompleto, bold: true, size: 24 }),
                   new docx.TextRun({ text: ', con D.N.I. ', size: 24 }),
                   new docx.TextRun({ text: extractedData.dni_numero, bold: true, size: 24 }),
                   new docx.TextRun({ text: ', el documento original correspondiente al PERMISO DE CIRCULACIÓN para proceder a la tramitación de la transferencia del vehículo:', size: 24 }),
@@ -199,7 +273,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
                       shading: { fill: 'f1f5f9' }, margins: { top: 100, bottom: 100, left: 100 },
                     }),
                     new docx.TableCell({
-                      children: [new docx.Paragraph({ children: [new docx.TextRun({ text: extractedData.marca_modelo.toUpperCase(), size: 24 })] })],
+                      children: [new docx.Paragraph({ children: [new docx.TextRun({ text: marcaModelo, size: 24 })] })],
                       margins: { top: 100, bottom: 100, left: 100 },
                     }),
                   ]}),
@@ -236,23 +310,19 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
             ],
           }],
         });
-
         return await docx.Packer.toBlob(doc);
       };
 
-      // ── Descargar ZIP con Word + documentos originales ──
+      // ── Descargar ZIP ──
       const handleDownloadAll = async () => {
         setLoading(true);
         try {
-          const zip            = new window.JSZip();
+          const zip             = new window.JSZip();
           const matriculaLimpia = extractedData?.matricula.replace(/ /g, '_') || 'Ipar';
-          const folderName     = `Tramite_${matriculaLimpia}`;
-          const mainFolder     = zip.folder(folderName);
+          const folderName      = `Tramite_${matriculaLimpia}`;
+          const mainFolder      = zip.folder(folderName);
 
-          mainFolder.file(
-            `Recibi_Ipar_Artekaritza_${matriculaLimpia}.docx`,
-            await generateWordDoc()
-          );
+          mainFolder.file(`Recibi_Ipar_Artekaritza_${matriculaLimpia}.docx`, await generateWordDoc());
 
           const origFolder = mainFolder.folder('01_Documentacion_Original');
           for (const [id, file] of Object.entries(files)) {
@@ -268,7 +338,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
           link.href = URL.createObjectURL(content);
           link.download = `${folderName}.zip`;
           link.click();
-          showStatus('success', 'Expediente generado con éxito. Imagen del permiso incluida.');
+          showStatus('success', 'Expediente generado con éxito.');
         } catch (e) {
           console.error(e);
           showStatus('error', 'Error al generar el Word. Intenta con una imagen JPG estándar.');
@@ -277,7 +347,84 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
         }
       };
 
+      // ── Hacienda: mejorar nombre con Allianz ──
+      const buscarAllianz = async () => {
+        if (!haciendaData.id) return;
+        setHaciendaLoading('allianz');
+        setHaciendaErr('');
+        try {
+          const resp = await fetch(`http://localhost:8000/api/allianz/${haciendaData.id}`);
+          const data = await resp.json();
+          if (data.marca) {
+            setHaciendaData(prev => ({
+              ...prev,
+              marca:            data.marca           || prev.marca,
+              version_completa: data.version_completa || prev.version_completa,
+            }));
+          } else {
+            setHaciendaErr('Allianz no encontró la matrícula.');
+          }
+        } catch {
+          setHaciendaErr('No se pudo conectar con el servidor local (python servidor.py).');
+        } finally {
+          setHaciendaLoading('');
+        }
+      };
+
+      // ── Hacienda: buscar modelos (Fase 1) ──
+      const buscarOpciones = async () => {
+        setHaciendaLoading('opciones');
+        setHaciendaErr('');
+        setOpciones([]);
+        setModeloSel('');
+        setPrecioFinal(null);
+        try {
+          const resp = await fetch('http://localhost:8000/api/opciones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(haciendaData),
+          });
+          const data = await resp.json();
+          if (!data.opciones || data.opciones.length === 0) {
+            setHaciendaErr('No se encontraron modelos. Revisa marca, modelo, cc, kW y combustible.');
+          } else {
+            setOpciones(data.opciones);
+          }
+        } catch {
+          setHaciendaErr('No se pudo conectar con el servidor local (python servidor.py).');
+        } finally {
+          setHaciendaLoading('');
+        }
+      };
+
+      // ── Hacienda: obtener precio (Fase 2) ──
+      const obtenerValoracion = async () => {
+        if (!modeloSel) return;
+        setHaciendaLoading('valoracion');
+        setHaciendaErr('');
+        try {
+          const resp = await fetch('http://localhost:8000/api/valoracion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ datos: haciendaData, modelo: modeloSel }),
+          });
+          const data = await resp.json();
+          setPrecioFinal(data.precio || '—');
+        } catch {
+          setHaciendaErr('No se pudo conectar con el servidor local (python servidor.py).');
+        } finally {
+          setHaciendaLoading('');
+        }
+      };
+
+      const setHField = (key) => (val) => setHaciendaData(prev => ({ ...prev, [key]: val }));
+
+      const canSearch = haciendaData.id && haciendaData.fecha_mat && haciendaData.marca &&
+                        haciendaData.modelo_buscar && haciendaData.cc > 0 && haciendaData.kw > 0;
+
       const allReady = extractedData && files['permiso'];
+
+      // ── Render ──────────────────────────────────────────────────────
 
       return (
         <div className="min-h-screen bg-slate-100 p-4 md:p-10 font-sans text-slate-900">
@@ -288,17 +435,13 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
               <div className="mb-6 p-5 bg-amber-50 border-l-4 border-amber-400 rounded-2xl">
                 <p className="font-bold text-amber-800 mb-2">🔑 API Key de Google Gemini requerida para el escaneo IA</p>
                 <input
-                  type="password"
-                  placeholder="AIza..."
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
+                  type="password" placeholder="AIza..."
+                  value={apiKey} onChange={e => setApiKey(e.target.value)}
                   className="border-2 border-amber-300 rounded-xl px-3 py-2 text-sm outline-none focus:border-amber-500 w-full max-w-md"
                 />
                 <p className="text-xs text-amber-600 mt-1">
                   Obtén una gratis en{' '}
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank" className="underline font-bold">
-                    aistudio.google.com
-                  </a>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" className="underline font-bold">aistudio.google.com</a>
                 </p>
               </div>
             )}
@@ -306,9 +449,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
             {/* Cabecera */}
             <header className="mb-10 flex flex-col md:flex-row justify-between items-center bg-white p-8 rounded-3xl shadow-xl border-b-4 border-blue-600 gap-6">
               <div className="flex items-center gap-5">
-                <div className="bg-blue-600 p-4 rounded-2xl text-white">
-                  <ShieldCheck size={40} />
-                </div>
+                <div className="bg-blue-600 p-4 rounded-2xl text-white"><ShieldCheck size={40} /></div>
                 <div>
                   <h1 className="text-3xl font-black tracking-tight">Ipar Artekaritza</h1>
                   <p className="text-blue-600 font-bold uppercase tracking-widest text-xs">Correduría de Seguros • Errenteria</p>
@@ -330,7 +471,9 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
               </div>
             )}
 
+            {/* ═══ GRID: Documentación + Extracción IA + Exportar ═══ */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+
               {/* Columna izquierda */}
               <div className="lg:col-span-7 space-y-8">
 
@@ -341,10 +484,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {DOC_TYPES.map(doc => (
-                      <label
-                        key={doc.id}
-                        className={`flex flex-col p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${files[doc.id] ? 'bg-blue-50 border-blue-500' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}`}
-                      >
+                      <label key={doc.id} className={`flex flex-col p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${files[doc.id] ? 'bg-blue-50 border-blue-500' : 'bg-slate-50 border-slate-200 hover:border-blue-400'}`}>
                         <input type="file" className="hidden" onChange={e => handleFileChange(doc.id, e)} />
                         <span className="text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">{doc.label}</span>
                         <span className="text-sm font-bold truncate flex items-center gap-2">
@@ -376,16 +516,14 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
                     <DataField label="Nombre y Apellidos" value={extractedData ? `${extractedData.nombre} ${extractedData.apellidos}` : ''} />
                     <DataField label="NIF Comprador"       value={extractedData?.dni_numero} />
                     <DataField label="Matrícula"           value={extractedData?.matricula} />
-                    <DataField label="Marca / Modelo"      value={extractedData?.marca_modelo} />
+                    <DataField label="Marca / Modelo"      value={extractedData ? `${extractedData.marca} ${extractedData.version_completa}` : ''} />
+                    <DataField label="Cilindrada"          value={extractedData?.cc ? `${extractedData.cc} cc` : ''} />
+                    <DataField label="Potencia / Combust." value={extractedData ? `${extractedData.kw} kW · ${extractedData.combustible === 'D' ? 'Diésel' : 'Gasolina'}` : ''} />
                     <div className="col-span-2 pt-4 border-t border-slate-200">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Provisión de Fondos</label>
                       <div className="relative">
-                        <input
-                          type="number"
-                          value={provision}
-                          onChange={e => setProvision(e.target.value)}
-                          className="w-full bg-white border-2 border-slate-200 p-3 rounded-xl font-black text-blue-700 text-xl outline-none focus:border-blue-500 transition-all"
-                        />
+                        <input type="number" value={provision} onChange={e => setProvision(e.target.value)}
+                          className="w-full bg-white border-2 border-slate-200 p-3 rounded-xl font-black text-blue-700 text-xl outline-none focus:border-blue-500 transition-all" />
                         <span className="absolute right-4 top-3 text-2xl font-bold text-slate-300">€</span>
                       </div>
                     </div>
@@ -393,7 +531,7 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
                 </section>
               </div>
 
-              {/* Columna derecha — panel exportar */}
+              {/* Columna derecha — panel exportar Word */}
               <div className="lg:col-span-5">
                 <div className="bg-gradient-to-br from-blue-700 to-blue-900 p-10 rounded-[2.5rem] text-white shadow-2xl">
                   <div className="flex items-center gap-4 mb-8">
@@ -430,6 +568,169 @@ JSON: { "nombre": "", "apellidos": "", "dni_numero": "", "matricula": "", "marca
                 </div>
               </div>
             </div>
+
+            {/* ═══ NUEVA SECCIÓN: Valoración Automática Hacienda ═══ */}
+            <section className="mt-10 bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+
+              {/* Título */}
+              <div className="mb-6">
+                <h2 className="text-xl font-black flex items-center gap-3 text-slate-700 mb-1">
+                  <Scale size={24} className="text-blue-600" /> Valoración Automática Hacienda Gipuzkoa
+                </h2>
+                <p className="text-xs text-slate-400 flex items-center gap-2">
+                  Requiere el servidor local en ejecución:
+                  <code className="bg-slate-100 px-2 py-0.5 rounded text-blue-700 font-mono text-xs">python servidor.py</code>
+                  <span className="text-slate-300">•</span>
+                  <span>Los datos se rellenan solos al escanear con IA</span>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+                {/* IZQUIERDA: Formulario editable */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <HaciendaInput label="Matrícula"
+                      value={haciendaData.id}
+                      onChange={v => setHField('id')(v.toUpperCase())} />
+                    <HaciendaInput label="Fecha Mat. DD/MM/YYYY"
+                      value={haciendaData.fecha_mat}
+                      onChange={setHField('fecha_mat')} />
+                    <HaciendaInput label="Marca"
+                      value={haciendaData.marca}
+                      onChange={v => setHField('marca')(v.toUpperCase())} />
+                    <HaciendaInput label="Modelo búsqueda"
+                      value={haciendaData.modelo_buscar}
+                      onChange={v => setHField('modelo_buscar')(v.toUpperCase())} />
+                    <HaciendaInput label="Cilindrada (cc)" type="number"
+                      value={haciendaData.cc}
+                      onChange={v => setHField('cc')(parseInt(v) || 0)}
+                      highlight={true} />
+                    <HaciendaInput label="Potencia (kW)" type="number"
+                      value={haciendaData.kw}
+                      onChange={v => setHField('kw')(parseInt(v) || 0)}
+                      highlight={true} />
+                  </div>
+
+                  {/* Combustible */}
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter mb-2">Combustible</p>
+                    <div className="flex gap-6">
+                      {[['D', 'Diésel'], ['G', 'Gasolina']].map(([val, label]) => (
+                        <label key={val} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={haciendaData.combustible === val}
+                            onChange={() => setHField('combustible')(val)}
+                            className="accent-blue-600 w-4 h-4"
+                          />
+                          <span className="font-bold text-sm text-slate-700">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Botones de acción */}
+                  <div className="flex flex-col gap-3 pt-2">
+                    <button
+                      onClick={buscarAllianz}
+                      disabled={haciendaLoading !== '' || !haciendaData.id}
+                      className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-slate-200 rounded-2xl font-black text-slate-700 hover:border-blue-400 hover:text-blue-700 disabled:opacity-40 transition-all"
+                    >
+                      {haciendaLoading === 'allianz'
+                        ? <Loader2 className="animate-spin" size={18} />
+                        : <Sparkles size={18} />}
+                      Mejorar nombre comercial con Allianz
+                    </button>
+
+                    <button
+                      onClick={buscarOpciones}
+                      disabled={haciendaLoading !== '' || !canSearch}
+                      className="flex items-center justify-center gap-3 py-4 bg-blue-600 text-white rounded-2xl font-black text-lg hover:bg-blue-700 disabled:opacity-40 transition-all shadow-lg shadow-blue-100"
+                    >
+                      {haciendaLoading === 'opciones'
+                        ? <><Loader2 className="animate-spin" size={22} /> Conectando con Hacienda...</>
+                        : <><Scale size={22} /> Buscar en Hacienda</>}
+                    </button>
+                  </div>
+                </div>
+
+                {/* DERECHA: Resultados */}
+                <div className="flex flex-col gap-4">
+
+                  {/* Error */}
+                  {haciendaErr && (
+                    <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-xl flex items-start gap-3 slide-in">
+                      <AlertCircle size={18} className="text-red-500 mt-0.5 flex-shrink-0" />
+                      <span className="text-sm font-bold text-red-700">{haciendaErr}</span>
+                    </div>
+                  )}
+
+                  {/* Spinner mientras obtiene precio */}
+                  {haciendaLoading === 'valoracion' && (
+                    <div className="flex items-center justify-center gap-3 p-6 bg-slate-50 rounded-2xl text-slate-500 font-bold">
+                      <Loader2 className="animate-spin" size={24} />
+                      Extrayendo precio de Hacienda...
+                    </div>
+                  )}
+
+                  {/* Precio final */}
+                  {precioFinal && (
+                    <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-6 text-center slide-in">
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Base Liquidable · Hacienda Gipuzkoa</p>
+                      <p className="text-5xl font-black text-emerald-700 mt-2">{precioFinal} €</p>
+                      <p className="text-xs text-emerald-500 mt-3 font-bold">{haciendaData.marca} {haciendaData.version_completa}</p>
+                    </div>
+                  )}
+
+                  {/* Lista de modelos encontrados */}
+                  {opciones.length > 0 && !precioFinal && (
+                    <div className="space-y-2 slide-in">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
+                        {opciones.length} modelo{opciones.length > 1 ? 's' : ''} encontrado{opciones.length > 1 ? 's' : ''} — elige el tuyo
+                      </p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                        {opciones.map((op, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setModeloSel(op)}
+                            className={`w-full text-left p-4 rounded-xl border-2 text-sm font-bold transition-all
+                              ${modeloSel === op
+                                ? 'border-blue-500 bg-blue-50 text-blue-800'
+                                : 'border-slate-200 hover:border-blue-300 text-slate-700'
+                              }`}
+                          >
+                            {modeloSel === op && <CheckCircle size={14} className="inline mr-2 text-blue-500" />}
+                            {op}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={obtenerValoracion}
+                        disabled={!modeloSel || haciendaLoading !== ''}
+                        className="w-full mt-4 py-4 bg-emerald-600 text-white rounded-2xl font-black text-lg hover:bg-emerald-700 disabled:opacity-40 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-3"
+                      >
+                        💰 Obtener Valoración Final
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Estado vacío */}
+                  {!haciendaErr && !haciendaLoading && opciones.length === 0 && !precioFinal && (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-300 text-center py-10 gap-3">
+                      <Scale size={48} />
+                      <p className="text-sm font-bold text-slate-400">
+                        {extractedData
+                          ? 'Datos rellenados. Pulsa "Buscar en Hacienda"'
+                          : 'Escanea el Permiso con IA para rellenar automáticamente o introduce los datos a mano'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
           </div>
         </div>
       );
