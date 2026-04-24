@@ -14,7 +14,8 @@ def obtener_valoracion_gipuzkoa(coche, modelo_a_seleccionar=None, log_func=print
                 "--disable-gpu",
             ]
         )
-        # ---------------------------------------------        page = browser.new_page()
+        # ---------------------------------------------
+        page = browser.new_page()
         
         try:
             # PASO 1: Inicio
