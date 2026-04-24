@@ -88,9 +88,11 @@ if st.session_state.paso == 'inicio':
                     st.session_state.paso = 'seleccionar'
                     st.rerun()
 
+            # 3. EL CINTURÓN DE SEGURIDAD (Esto se ejecuta SIEMPRE)
             finally:
                 if os.path.exists(ruta_temp):
                     os.remove(ruta_temp)
+                    print(f"🧹 Limpieza: Archivo {ruta_temp} borrado.")
 
 # PASO DE SELECCIÓN: EL USUARIO ELIGE EN LA WEB
 elif st.session_state.paso == 'seleccionar':
