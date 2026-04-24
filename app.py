@@ -20,6 +20,33 @@ from obtener_valoracion import obtener_valoracion_gipuzkoa
 # --- 2. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Valorador Pro", page_icon="🚗")
 
+# --- SIDEBAR: API KEY ---
+with st.sidebar:
+    st.subheader("🔑 Clave de Google Gemini")
+    st.markdown(
+        "Para usar la app necesitas una clave gratuita de Google. "
+        "Sigue estos pasos:\n\n"
+        "1. Entra en [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)\n"
+        "2. Pulsa el botón **\"Crear clave de API\"** (arriba a la derecha)\n"
+        "3. Copia la clave y pégala aquí abajo"
+    )
+    api_key_usuario = st.text_input(
+        "Pega aquí tu API Key",
+        type="password",
+        placeholder="AIza...",
+    )
+    # Usar la del usuario si la ha introducido; si no, intentar la de secrets
+    if api_key_usuario:
+        gemini_api_key = api_key_usuario
+    else:
+        try:
+            gemini_api_key = st.secrets["GEMINI_API_KEY"]
+        except Exception:
+            gemini_api_key = None
+
+    if not gemini_api_key:
+        st.warning("Introduce tu API Key para poder usar la app.")
+
 # Inicializamos la memoria de la sesión si no existe
 if 'paso' not in st.session_state:
     st.session_state.paso = 'inicio'
@@ -37,7 +64,7 @@ if st.session_state.paso == 'inicio':
     archivo_pdf = st.file_uploader("Arrastra tu PDF aquí", type=["pdf"])
 
     if archivo_pdf:
-        if st.button("🚀 Iniciar Análisis", type="primary"):
+        if st.button("🚀 Iniciar Análisis", type="primary", disabled=not gemini_api_key):
             # --- SOLUCIÓN: CREAMOS UN NOMBRE ÚNICO PARA CADA USUARIO ---
             codigo_unico = uuid.uuid4().hex
             ruta_temp = f"temp_permiso_{codigo_unico}.pdf"
@@ -49,7 +76,7 @@ if st.session_state.paso == 'inicio':
                 # --- A. Leer con IA ---
                 with st.status("🤖 Analizando PDF con Inteligencia Artificial...", expanded=True) as status:
                     status.write("Subiendo documento de forma segura...")
-                    datos = extraer_datos_pdf(ruta_temp)
+                    datos = extraer_datos_pdf(ruta_temp, gemini_api_key)
                     
                     if datos:
                         status.update(label="✅ PDF leído con éxito", state="complete", expanded=False)
@@ -59,6 +86,7 @@ if st.session_state.paso == 'inicio':
                         status.update(label="❌ Error al leer el PDF", state="error")
                         st.stop() # Detiene la ejecución aquí
 
+                assert datos is not None  # st.stop() ya maneja el caso None arriba
                 # --- B. Buscar en Allianz ---
                 with st.status("🔍 Consultando base de datos de Allianz...", expanded=True) as status:
                     status.write(f"Buscando la matrícula {datos['id']}...")

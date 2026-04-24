@@ -5,13 +5,10 @@ from google import genai
 import streamlit as st
 
 
-# La nube leerá la clave de la caja fuerte secreta de Streamlit
-API_KEY = st.secrets["GEMINI_API_KEY"]
-client = genai.Client(api_key=API_KEY)
-
-def extraer_datos_pdf(ruta_pdf):
+def extraer_datos_pdf(ruta_pdf, api_key):
+    client = genai.Client(api_key=api_key)
     print(f"📄 Subiendo el documento '{ruta_pdf}' a Gemini...")
-    
+
     try:
         # Subimos el PDF a la nube temporal de Gemini
         documento_subido = client.files.upload(file=ruta_pdf)
