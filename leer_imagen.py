@@ -56,11 +56,31 @@ def extraer_datos_pdf(ruta_pdf):
         return coche_diccionario
 
     except Exception as e:
-        # --- AQUÍ ESTÁ EL CAMBIO MÁGICO ---
-        st.error(f"🕵️‍♂️ DETALLE TÉCNICO DEL FALLO: {e}") 
-        # ----------------------------------
-        print(f"❌ Error al procesar el PDF: {e}")
-        return None
+            # Convertimos el error técnico a texto para poder buscar palabras clave
+            error_tecnico = str(e)
+            
+            # --- TRADUCTOR DE ERRORES PARA EL USUARIO ---
+            if "503" in error_tecnico or "UNAVAILABLE" in error_tecnico:
+                st.error("🚦 **Atasco en la nube:** Hay muchas personas usando la Inteligencia Artificial en este momento. Espera unos 30 segundos y vuelve a darle al botón.")
+                
+            elif "429" in error_tecnico or "RESOURCE_EXHAUSTED" in error_tecnico:
+                st.error("⏳ **Límite de velocidad:** Has hecho muchas valoraciones seguidas muy rápido. El sistema te ha puesto en pausa para no saturarse. Espera 1 minuto y vuelve a intentarlo.")
+                
+            elif "400" in error_tecnico or "API_KEY_INVALID" in error_tecnico:
+                st.error("🔑 **Problema con la llave:** La clave de Google no funciona. Avisa al Desarrollador/a para que revise la caja fuerte (Secrets) de Streamlit.")
+                
+            elif "JSONDecodeError" in error_tecnico:
+                st.error("🧩 **Confusión de la IA:** La Inteligencia Artificial ha leído el PDF pero se ha hecho un lío al escribir los datos. Vuelve a intentarlo, a la segunda suele acertar.")
+                
+            else:
+                # Si es un error nuevo que no conocemos, mostramos un mensaje genérico
+                st.error("❌ **No se ha podido procesar este documento.**")
+            
+            # --- ZONA PARA LA DESARROLLADORA (Oculto por defecto) ---
+            with st.expander("🛠️ Ver detalle técnico (Solo para mantenimiento)"):
+                st.code(error_tecnico)
+                
+            return None
 # # --- Zona de pruebas ---
 # if __name__ == "__main__":
 #     # Asegúrate de poner el nombre exacto de tu PDF aquí
