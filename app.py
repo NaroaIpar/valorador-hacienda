@@ -150,6 +150,11 @@ if st.session_state.paso == 'inicio':
                 f_combustible = st.selectbox("⛽ Combustible", options=["D", "G"],
                                              format_func=lambda x: "Diésel" if x == "D" else "Gasolina")
 
+            f_buscar_allianz = st.checkbox(
+                "🔍 Buscar modelo comercial en Allianz",
+                value=False,
+                help="Consulta Allianz con la matrícula para obtener el nombre comercial completo del modelo."
+            )
             submit_manual = st.form_submit_button("🔍 Buscar en Hacienda", type="primary", use_container_width=True)
 
         if submit_manual:
@@ -184,6 +189,19 @@ if st.session_state.paso == 'inicio':
                     "kw": int(f_kw),
                     "combustible": f_combustible,
                 }
+                if f_buscar_allianz:
+                    with st.status("🔍 Consultando base de datos de Allianz...", expanded=True) as status:
+                        status.write(f"Buscando la matrícula {datos_manual['id']}...")
+                        res_allianz = extraer_datos_allianz(datos_manual['id'])
+
+                        if res_allianz:
+                            datos_manual.update(res_allianz)
+                            status.update(label="✅ Modelo comercial encontrado", state="complete", expanded=False)
+                            st.info(f"✨ Modelo Allianz: **{datos_manual['marca']} {datos_manual['version_completa']}**")
+                        else:
+                            status.update(label="⚠️ No se conectó con Allianz", state="complete", expanded=False)
+                            st.warning("No se encontró el modelo en Allianz. Se usarán los datos introducidos.")
+
                 st.session_state.datos_coche = datos_manual
 
                 with st.status("🏛️ Conectando con Hacienda de Gipuzkoa...", expanded=True) as status:
