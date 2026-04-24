@@ -5,6 +5,7 @@ import asyncio
 import sys
 import signal # Añade esto en tus imports de arriba del todo
 import uuid
+import re
 
 os.system("playwright install chromium") # <-- Añade esto para la nube
 
@@ -58,69 +59,143 @@ st.title("🚗 Asistente de Valoración Automática")
 
 # --- 3. FLUJO DE LA APLICACIÓN ---
 
-# PASO INICIAL: SUBIDA DE ARCHIVO
+# PASO INICIAL: SUBIDA DE ARCHIVO O ENTRADA MANUAL
 if st.session_state.paso == 'inicio':
-    st.markdown("Sube el **Permiso de Circulación** para empezar.")
-    archivo_pdf = st.file_uploader("Arrastra tu PDF aquí", type=["pdf"])
+    tab_auto, tab_manual = st.tabs(["📄 Subir PDF (Automático con IA)", "✏️ Introducir datos manualmente"])
 
-    if archivo_pdf:
-        if st.button("🚀 Iniciar Análisis", type="primary", disabled=not gemini_api_key):
-            # --- SOLUCIÓN: CREAMOS UN NOMBRE ÚNICO PARA CADA USUARIO ---
-            codigo_unico = uuid.uuid4().hex
-            ruta_temp = f"temp_permiso_{codigo_unico}.pdf"
-            # -----------------------------------------------------------
-            with open(ruta_temp, "wb") as f:
-                f.write(archivo_pdf.getbuffer())
+    # --- TAB AUTOMÁTICO ---
+    with tab_auto:
+        st.markdown("Sube el **Permiso de Circulación** para empezar.")
+        archivo_pdf = st.file_uploader("Arrastra tu PDF aquí", type=["pdf"])
 
-            try:
-                # --- A. Leer con IA ---
-                with st.status("🤖 Analizando PDF con Inteligencia Artificial...", expanded=True) as status:
-                    status.write("Subiendo documento de forma segura...")
-                    datos = extraer_datos_pdf(ruta_temp, gemini_api_key)
-                    
-                    if datos:
-                        status.update(label="✅ PDF leído con éxito", state="complete", expanded=False)
-                        st.success("📄 Datos extraídos del documento:")
-                        st.json(datos) # Deja el JSON visible en la pantalla
-                    else:
-                        status.update(label="❌ Error al leer el PDF", state="error")
-                        st.stop() # Detiene la ejecución aquí
+        if archivo_pdf:
+            buscar_allianz = st.checkbox(
+                "🔍 Buscar modelo comercial en Allianz",
+                value=True,
+                help="Mejora la referencia del modelo al buscar en Hacienda. Desactívalo si quieres ir más rápido o si Allianz suele fallar."
+            )
+            if st.button("🚀 Iniciar Análisis", type="primary", disabled=not gemini_api_key):
+                codigo_unico = uuid.uuid4().hex
+                ruta_temp = f"temp_permiso_{codigo_unico}.pdf"
+                with open(ruta_temp, "wb") as f:
+                    f.write(archivo_pdf.getbuffer())
 
-                assert datos is not None  # st.stop() ya maneja el caso None arriba
-                # --- B. Buscar en Allianz ---
-                with st.status("🔍 Consultando base de datos de Allianz...", expanded=True) as status:
-                    status.write(f"Buscando la matrícula {datos['id']}...")
-                    res_allianz = extraer_datos_allianz(datos['id'])
-                    
-                    if res_allianz:
-                        datos.update(res_allianz)
-                        status.update(label="✅ Modelo comercial encontrado", state="complete", expanded=False)
-                        st.info(f"✨ Modelo Allianz: **{datos['marca']} {datos['version_completa']}**")
-                    else:
-                        status.update(label="⚠️ No se conectó con Allianz", state="complete", expanded=False)
-                        st.warning("Usando nombre técnico del PDF.")
-                
-                st.session_state.datos_coche = datos
-                
-                # --- C. Hacienda Fase 1 ---
+                try:
+                    # --- A. Leer con IA ---
+                    with st.status("🤖 Analizando PDF con Inteligencia Artificial...", expanded=True) as status:
+                        status.write("Subiendo documento de forma segura...")
+                        datos = extraer_datos_pdf(ruta_temp, gemini_api_key)
+
+                        if datos:
+                            status.update(label="✅ PDF leído con éxito", state="complete", expanded=False)
+                            st.success("📄 Datos extraídos del documento:")
+                            st.json(datos)
+                        else:
+                            status.update(label="❌ Error al leer el PDF", state="error")
+                            st.info("💡 Si el error persiste, puedes introducir los datos manualmente en la pestaña **✏️ Introducir datos manualmente**.")
+                            st.stop()
+
+                    assert datos is not None
+                    # --- B. Buscar en Allianz (opcional) ---
+                    if buscar_allianz:
+                        with st.status("🔍 Consultando base de datos de Allianz...", expanded=True) as status:
+                            status.write(f"Buscando la matrícula {datos['id']}...")
+                            res_allianz = extraer_datos_allianz(datos['id'])
+
+                            if res_allianz:
+                                datos.update(res_allianz)
+                                status.update(label="✅ Modelo comercial encontrado", state="complete", expanded=False)
+                                st.info(f"✨ Modelo Allianz: **{datos['marca']} {datos['version_completa']}**")
+                            else:
+                                status.update(label="⚠️ No se conectó con Allianz", state="complete", expanded=False)
+                                st.warning("Usando nombre técnico del PDF.")
+
+                    st.session_state.datos_coche = datos
+
+                    # --- C. Hacienda Fase 1 ---
+                    with st.status("🏛️ Conectando con Hacienda de Gipuzkoa...", expanded=True) as status:
+                        def mensajero_web(texto):
+                            status.write(texto)
+
+                        opciones = obtener_valoracion_gipuzkoa(datos, log_func=mensajero_web)
+
+                        status.update(label="✅ Tablas de Hacienda escaneadas", state="complete", expanded=False)
+                        st.session_state.opciones = opciones
+                        st.session_state.paso = 'seleccionar'
+                        st.rerun()
+
+                finally:
+                    if os.path.exists(ruta_temp):
+                        os.remove(ruta_temp)
+                        print(f"🧹 Limpieza: Archivo {ruta_temp} borrado.")
+
+    # --- TAB MANUAL ---
+    with tab_manual:
+        st.markdown("Introduce los datos del vehículo directamente para ir más rápido.")
+
+        with st.form("form_datos_manuales"):
+            col1, col2 = st.columns(2)
+            with col1:
+                f_matricula = st.text_input("🏷️ Matrícula", placeholder="1234ABC")
+                f_fecha = st.text_input("📅 Fecha de matriculación", placeholder="DD/MM/YYYY")
+                f_marca = st.text_input("🚗 Marca", placeholder="AUDI",
+                                        help="En MAYÚSCULAS como aparece en Hacienda (ej: VOLKSWAGEN, BMW)")
+                f_version = st.text_input("📋 Versión completa (opcional)", placeholder="Q5 3.0 TDI 240 QUATTRO",
+                                          help="Solo para el informe final. Si la dejas vacía se usará el modelo de búsqueda.")
+            with col2:
+                f_modelo = st.text_input("🔍 Modelo (para búsqueda en Hacienda)", placeholder="Q5",
+                                         help="Normalmente la primera palabra del campo D.3 del permiso")
+                f_cc = st.number_input("⚙️ Cilindrada (cc)", min_value=0, step=1, value=0)
+                f_kw = st.number_input("⚡ Potencia (kW)", min_value=0, step=1, value=0)
+                f_combustible = st.selectbox("⛽ Combustible", options=["D", "G"],
+                                             format_func=lambda x: "Diésel" if x == "D" else "Gasolina")
+
+            submit_manual = st.form_submit_button("🔍 Buscar en Hacienda", type="primary", use_container_width=True)
+
+        if submit_manual:
+            errores = []
+            if not f_matricula.strip():
+                errores.append("La matrícula es obligatoria.")
+            if not f_fecha.strip():
+                errores.append("La fecha de matriculación es obligatoria.")
+            elif not re.match(r'^\d{2}/\d{2}/\d{4}$', f_fecha.strip()):
+                errores.append("La fecha debe tener el formato DD/MM/YYYY (ej: 13/03/2012).")
+            if not f_marca.strip():
+                errores.append("La marca es obligatoria.")
+            if not f_modelo.strip():
+                errores.append("El modelo de búsqueda es obligatorio.")
+            if f_cc <= 0:
+                errores.append("La cilindrada debe ser mayor que 0.")
+            if f_kw <= 0:
+                errores.append("La potencia debe ser mayor que 0.")
+
+            if errores:
+                for e in errores:
+                    st.error(e)
+            else:
+                datos_manual = {
+                    "id": f_matricula.strip().upper(),
+                    "fecha_mat": f_fecha.strip(),
+                    "tipo_vehiculo": "Turismos y Todo Terrenos",
+                    "marca": f_marca.strip().upper(),
+                    "version_completa": f_version.strip() if f_version.strip() else f_modelo.strip().upper(),
+                    "modelo_buscar": f_modelo.strip().upper(),
+                    "cc": int(f_cc),
+                    "kw": int(f_kw),
+                    "combustible": f_combustible,
+                }
+                st.session_state.datos_coche = datos_manual
+
                 with st.status("🏛️ Conectando con Hacienda de Gipuzkoa...", expanded=True) as status:
-                    # Creamos un mensajero que escribe directamente dentro de esta cajita de status
-                    def mensajero_web(texto):
+                    def mensajero_manual(texto):
                         status.write(texto)
-                    
-                    # Le pasamos el mensajero a tu función
-                    opciones = obtener_valoracion_gipuzkoa(datos, log_func=mensajero_web)
-                    
+
+                    opciones = obtener_valoracion_gipuzkoa(datos_manual, log_func=mensajero_manual)
+
                     status.update(label="✅ Tablas de Hacienda escaneadas", state="complete", expanded=False)
                     st.session_state.opciones = opciones
                     st.session_state.paso = 'seleccionar'
                     st.rerun()
-
-            # 3. EL CINTURÓN DE SEGURIDAD (Esto se ejecuta SIEMPRE)
-            finally:
-                if os.path.exists(ruta_temp):
-                    os.remove(ruta_temp)
-                    print(f"🧹 Limpieza: Archivo {ruta_temp} borrado.")
 
 # PASO DE SELECCIÓN: EL USUARIO ELIGE EN LA WEB
 elif st.session_state.paso == 'seleccionar':
